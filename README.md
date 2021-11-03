@@ -12,3 +12,6 @@ Steps to execute.
 4. Run the curl above either from terminal or postman to receive the website of the data you want.
 
 When you receive your response you can send another curl with different URL.
+
+For a simple test of the main parsing function you can run:
+go test parsers/*.go 
