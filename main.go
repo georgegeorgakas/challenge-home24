@@ -4,28 +4,15 @@ import (
 	"challenge-home24/parsers"
 	"encoding/json"
 	"fmt"
-	"github.com/PuerkitoBio/goquery"
 	"github.com/gorilla/mux"
-	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 )
 
 var inaccessibleLinksFound int
-
-// htmlForm represents the basic elements of an HTML Form.
-type htmlForm struct {
-	// Action is the URL where the form will be submitted
-	Action string
-	// Method is the HTTP method to use when submitting the form
-	Method string
-	// Values contains form values to be submitted
-	Values url.Values
-}
 
 type SearchUrls struct {
 	Url string
@@ -64,6 +51,7 @@ func getData(w http.ResponseWriter, r *http.Request) {
 
 	validUrls := make([]string, 0)
 	var response = getWebsiteDetails(&validUrls, urls.Url)
+	response.HasLoginForm = getFormsOfWebsite(urls.Url)
 
 	for _, href := range validUrls {
 		wg.Add(1)
@@ -101,6 +89,37 @@ func getWebsiteDetails(validUrls *[]string, givenUrl string) WebsiteData {
 	}
 }
 
+// This is a function in which we receive the forms of a website
+// and with custom conditions we decide if we have a login form or not
+// Test cases for this function to work are
+// https://github.com/login &&
+// https://gitlab.com/users/sign_in
+func getFormsOfWebsite(givenUrl string) bool {
+	response, err := http.Get(givenUrl)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer response.Body.Close()
+
+	forms := parsers.ParseForms(response.Body)
+	if len(forms) == 0 {
+		print("no forms found at %q")
+	}
+
+	for _, formData := range forms {
+		if strings.Contains(formData.Action, "sign_in") || strings.Contains(formData.Action, "log_in") ||
+			strings.Contains(formData.Action, "login") || strings.Contains(formData.Action, "signin") {
+			return true
+		}
+		for key, _ := range formData.Values {
+			if key == "login" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // GET Request to check if we have found any inaccessible URLs
 func checkInaccessibleUrls(wg *sync.WaitGroup, href string) {
 	defer wg.Done()
@@ -109,41 +128,4 @@ func checkInaccessibleUrls(wg *sync.WaitGroup, href string) {
 		inaccessibleLinksFound++
 		println(err.Error())
 	}
-}
-
-func findLoginForm(r io.Reader) (forms []htmlForm) {
-	doc, _ := goquery.NewDocumentFromReader(r)
-	doc.Find("form").Each(func(_ int, s *goquery.Selection) {
-		form := htmlForm{Values: url.Values{}}
-		form.Action, _ = s.Attr("action")
-		form.Method, _ = s.Attr("method")
-
-		s.Find("input").Each(func(_ int, s *goquery.Selection) {
-			name, _ := s.Attr("name")
-			if name == "" {
-				return
-			}
-
-			typ, _ := s.Attr("type")
-			typ = strings.ToLower(typ)
-			_, checked := s.Attr("checked")
-			if (typ == "radio" || typ == "checkbox") && !checked {
-				return
-			}
-
-			value, _ := s.Attr("value")
-			form.Values.Add(name, value)
-		})
-		s.Find("textarea").Each(func(_ int, s *goquery.Selection) {
-			name, _ := s.Attr("name")
-			if name == "" {
-				return
-			}
-
-			value := s.Text()
-			form.Values.Add(name, value)
-		})
-		forms = append(forms, form)
-	})
-	return forms
 }
